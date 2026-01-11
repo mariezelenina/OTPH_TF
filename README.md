@@ -21,13 +21,11 @@ editor_options:
     dependencies: matrixStats
 
 NOTE: All this should run as of June 16, 2025.
-Please contact me with questions or if you spot any mistakes: [marie.zelenina\@nih.gov](mailto:marie.zelenina@nih.gov){.email}.
+Please contact me with questions or if you spot any mistakes: [marie.zelenina\@nih.gov](mailto:marie.zelenina@nih.gov).
 
 NOTE1: EEG preprocessing was done in MATLAB; the code is published elsewhere.
 See the paper below for reference: da Cruz, J. R., Chicherov, V., Herzog, M. H., & Figueiredo, P. (2018).
 An automatic pre-processing pipeline for EEG analysis (APP) based on robust statistics.
 Clinical Neurophysiology, 129(7), 1427-1437.
 
-NOTE2: To fully reproduce all steps, you'll need MATLAB, Python, and R...
-Sorry about that.
-I find that for me Python works best for wrangling data, R for stats, and MATLAB for EEG analysis :-/
+NOTE2: To fully reproduce all steps, you'll need MATLAB, Python, and R. I find that for me Python works best for wrangling data, R for stats, and MATLAB for EEG analysis.
