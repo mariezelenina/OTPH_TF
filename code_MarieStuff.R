@@ -15,7 +15,7 @@ names(data)[1] <- "Id"
 # Change the EC to EO and vice versa in the filename to 
 # obtain results for Eyes open and eyes closed, respecitvely
 
-data <- read.table("/Users/zeleninam2/Documents/projects/Oxytocin_final_2024/dat_EO_relPower.csv", header=T, sep=",")
+data <- read.table("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/all_data/dat_EO_relPower.csv", header=T, sep=",")
 
 data$Drug <- factor(data$Drug)
 data$TP <- factor(data$TP)
@@ -84,3 +84,6 @@ emm_b = emmeans(b, specs = pairwise ~ Drug|TP, type = "response", adjust = "bonf
 emm_b
 # ------------------------------------------------------------------------------
 
+# Code by Marie Zelenina
+# last updated 2026-Jan-11
+# marie.zelenina@gmail.com
