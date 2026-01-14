@@ -11,18 +11,13 @@ library(emmeans)
 library(effectsize)
 library(simr)
 library(matrixStats)
-
+library(tidyverse)
 
 names(data)[1] <- "Id"
 
-# a lot of this stuff should be wrapped in formulas but whatever
-
-# ----------------------------------------------
 # ----------------------------------------------
 # Load the  data. 
 # ----------------------------------------------
-# ----------------------------------------------
-
 
 data_eo <- read.table("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/behav_lmm/dat_EO_relPower_withbehav_missval.csv", header=T, sep=",")
 data_ec <- read.table("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/behav_lmm/dat_EC_relPower_withbehav_missval.csv", header=T, sep=",")
@@ -35,27 +30,15 @@ data_ec$Drug <- factor(data_ec$Drug)
 data_ec$TP <- factor(data_ec$TP)
 data_ec$id <- factor(data_ec$id)
 
-#data$Alertness <- factor(data$Alertness)
-#data$Sociability <- factor(data$Sociability)
-#data$Excitement <- factor(data$Excitement)
+# NOT coding behav scales as factors for slopes
 
-# ----------------------------------------------
-# ----------------------------------------------
-# run the model
-# ----------------------------------------------
-# ----------------------------------------------
+#data_ec$Alertness_reversed <- factor(data_ec$Alertness_reversed)
+#data_ec$Sociability_reversed <- factor(data_ec$Sociability_reversed)
+#data_ec$Excitement_reversed <- factor(data_ec$Excitement_reversed)
 
-# THETA - Alertness
-# (iterate through [Theta, Alpha, Beta] and [Alertness_reversed, Excitement_reversed, Sociability_reversed] manually)
-# specify which data: eo or ec
-
-t = lmer(Alpha ~ Alpha_base + TP*Drug*Sociability_reversed + (1|id), data=data_ec)
-anova(t, type=3)
-
-# ------------------------------------------------------------------------------
-# POSTHOCS
-# correlations between behavioral features and EEG
-# for OT/PL separately
+#data_eo$Alertness_reversed <- factor(data_eo$Alertness_reversed)
+#data_eo$Sociability_reversed <- factor(data_eo$Sociability_reversed)
+#data_eo$Excitement_reversed <- factor(data_eo$Excitement_reversed)
 
 # SPLIT DATA between ot and pl
 
@@ -65,56 +48,185 @@ data_eo_pl_all<-data_eo[data_eo$Drug==2,]
 data_ec_ot_all<-data_ec[data_ec$Drug==1,]
 data_ec_pl_all<-data_ec[data_ec$Drug==2,]
 
-# ANALYZE
-# (this really should be a loop but I'm keeping it like this for clarity and to make changes easily)
+# ----------------------------------------------
+# ----------------------------------------------
+# run the model
+# ----------------------------------------------
+# ----------------------------------------------
+
+# ----------------------------------------------
+# ---------- MIN WORKING EXAMPLE ---------------
+# ---------- EC, THETA, ALERTNESS --------------
+# --------------- NO LOOPS ---------------------
+# ----------------------------------------------
+
+# EXAMPLE: THETA - Alertness
+
+cat("\n===== Anova LMM results =====\n")
+model = lmer(Theta ~ Theta_base + TP*Drug*Alertness_reversed + (1|id), data=data_ec)
+anova(model, type=3)
+
+cat("\n===== Slopes estimation =====\n")
+trend <- emtrends(model,  as.formula("~1"),var = "Alertness_reversed")
+summary_trend_df<- as.data.frame(test(trend))
+summary_trend_df <- summary_trend_df %>%
+  mutate(
+    t = Alertness_reversed.trend / SE
+  )
+r_trend <- t_to_r(summary_trend_df$t, summary_trend_df$df)
+summary_trend_df$r <- r_trend$r
+print(as.matrix(summary_trend_df))
 
 # ------> alertness, theta, ALL time points
+cat("\n===== Correlations - all time points =====\n")
 print(cor.test(data_eo_ot_all$Alertness_reversed, data_eo_ot_all$Theta,use="pairwise.complete.obs",method = "spearman"))
-# for df 
 sum(complete.cases(data_eo_ot_all$Alertness_reversed,data_eo_ot_all$Theta))-2
 
 print(cor.test(data_eo_pl_all$Alertness_reversed, data_eo_pl_all$Theta,use="pairwise.complete.obs",method = "spearman"))
-# for df 
 sum(complete.cases(data_ec_pl_all$Alertness_reversed,data_eo_pl_all$Theta))-2
 
 # ------> alertness, theta by time point
+cat("\n===== Correlations - by time point =====\n")
 for (timep in list(1,2,3,4,5,6)) {
-  print(timep)
   data_my_tp_ot<-data_eo_ot_all[data_eo_ot_all$TP==timep,]
   data_my_tp_pl<-data_eo_pl_all[data_eo_pl_all$TP==timep,]
   
+  print("---------------------------------------")
+  cat("\nTP =", timep, "; Oxytocin\n")
   print(cor.test(data_my_tp_ot$Alertness_reversed, data_my_tp_ot$Theta,use="pairwise.complete.obs",method = "spearman"))
-  print(sum(complete.cases(data_my_tp_ot$Alertness_reversed,data_my_tp_ot$Theta))-2)
-  print(cor.test(data_my_tp_pl$Alertness_reversed, data_my_tp_pl$Theta,use="pairwise.complete.obs",method = "spearman"))
-  print(sum(complete.cases(data_my_tp_pl$Alertness_reversed,data_my_tp_pl$Theta))-2)
-}
-
-# CHANGE AS NEEDED FOR EO/EC, BAND, MEASURE
-
-# ------> ALL time points
-print(cor.test(data_ec_ot_all$Alertness_reversed, data_ec_ot_all$Theta,use="pairwise.complete.obs",method = "spearman"))
-# for df 
-print(paste("df=", sum(complete.cases(data_ec_ot_all$Alertness_reversed, data_ec_ot_all$Theta)) - 2))
-print(cor.test(data_ec_pl_all$Alertness_reversed, data_ec_pl_all$Theta,use="pairwise.complete.obs",method = "spearman"))
-# for df 
-print(paste("df=", sum(complete.cases(data_ec_pl_all$Alertness_reversed,data_ec_pl_all$Theta))-2))
-
-
-# ------> by time point
-for (timep in list(1,2,3,4,5,6)) {
-  print(paste("timpoint=",timep))
-  data_my_tp_ot<-data_eo_ot_all[data_eo_ot_all$TP==timep,]
-  data_my_tp_pl<-data_eo_pl_all[data_eo_pl_all$TP==timep,]
+  df_ot <- sum(complete.cases(data_my_tp_ot$Alertness_reversed, data_my_tp_ot$Theta)) - 2
+  cat("Degrees of freedom =", df_ot, "\n")
   
-  print(cor.test(data_my_tp_ot$Excitement_reversed, data_my_tp_ot$Alpha,use="pairwise.complete.obs",method = "spearman"))
-  print(paste("df=", sum(complete.cases(data_my_tp_ot$Excitement_reversed,data_my_tp_ot$Alpha))-2))
-  print(cor.test(data_my_tp_pl$Excitement_reversed, data_my_tp_pl$Alpha,use="pairwise.complete.obs",method = "spearman"))
-  print(paste("df=", sum(complete.cases(data_my_tp_pl$Excitement_reversed,data_my_tp_pl$Alpha))-2))
+  cat("\nTP =", timep, "; Placebo\n")
+  print(cor.test(data_my_tp_pl$Alertness_reversed, data_my_tp_pl$Theta,use="pairwise.complete.obs",method = "spearman"))
+  df_pl <- sum(complete.cases(data_my_tp_pl$Alertness_reversed, data_my_tp_pl$Theta)) - 2
+  cat("Degrees of freedom =", df_pl, "\n")
 }
 
-# ? - spearman, pearson or kendall
-# https://ishanjainoffical.medium.com/choosing-the-right-correlation-pearson-vs-spearman-vs-kendalls-tau-02dc7d7dd01d
-# I chose spearman because we dont know if the relationship is monotonic
+# ----------------------------------------------
+# ----------------- LOOP -----------------------
+# ------- FOR EO/EC, BAND, MEASURE -------------
+# ----------------------------------------------
+
+# put all output into a text file
+# that will just dump everything we output into a file
+path_to_savefile = "/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/all_code/OTPH_TF/OTPH_results_behav_allresults.txt"
+sink(path_to_savefile)
+
+# LOOP THROUGH EYE OPEN/CLOSED
+for (eyes_cond in c("eyes_open", "eyes_closed")){
+  
+  # chose the right data depending on eyes cond
+  if (eyes_cond == "eyes_open") {
+    mydata_main   <- data_eo
+    mydata_ot_all <- data_eo_ot_all
+    mydata_pl_all <- data_eo_pl_all
+  } else {
+    mydata_main   <- data_ec
+    mydata_ot_all <- data_ec_ot_all
+    mydata_pl_all <- data_ec_pl_all
+  } 
+
+  # LOOP THROUGH BANDS
+  bands <- c("Theta", "Alpha", "Beta")
+  for (band in bands) {
+  
+    # LOOP THROUGH BEHAV MEASURES
+    behav_vars <- c("Alertness_reversed", "Excitement_reversed", "Sociability_reversed")
+    for (behav_var in behav_vars) {
+      
+      # do the analysis for this eyes condition, band, measure
+      cat("\n-----------------------------------------------------------------------------------------------------------------\n")
+      cat("\n--------------------------------------------\nEYES = ", eyes_cond, "\n--------------------------------------------\n")
+      cat("\n----------------------------------------------\nBAND = ", band, "\n----------------------------------------------\n")
+      cat("\n------------------------------------------\nMEASURE = ", behav_var, "\n------------------------------------------\n")
+      cat("\n-----------------------------------------------------------------------------------------------------------------\n")
+      
+      cat("\n===== Anova results, after fitting lmm =====\n\n")
+      
+      formula_str <- paste0(band, " ~ ", band, "_base + TP*Drug*", behav_var, " + (1|id)")
+      model <- lmer(as.formula(formula_str), data = mydata_main)  
+      print(anova(model, type=3))
+      
+      cat("\n===== Slopes estimation =====\n\n")
+      
+      trend <- emtrends(model,  as.formula("~1"),var = behav_var)
+      summary_trend_df<- as.data.frame(test(trend))
+      summary_trend_df <- summary_trend_df %>%
+        mutate(
+          t = .data[[paste0(behav_var, ".trend")]] / SE
+        )
+      r_trend <- t_to_r(summary_trend_df$t, summary_trend_df$df)
+      summary_trend_df$r <- r_trend$r
+      print(as.matrix(summary_trend_df))
+      
+      cat("\n===== Correlations (", eyes_cond, ": ", band, " × ", behav_var, ") - all time points =====\n", sep="")
+      
+      cat("\nOxytocin\n")
+      x <- mydata_ot_all[[behav_var]]
+      y <- mydata_ot_all[[band]]
+      # Remove NA rows
+      idx <- complete.cases(x, y)
+      # calculate corr
+      cor_res <- cor.test(x[idx], y[idx], method="spearman")
+      print(cor_res)
+      # df
+      df_ot_all = sum(complete.cases(mydata_ot_all[[behav_var]],mydata_ot_all[[band]]))-2
+      cat("Degrees of freedom =", df_ot_all, "\n")
+      
+      cat("\nPlacebo\n")
+      x <- mydata_pl_all[[behav_var]]
+      y <- mydata_pl_all[[band]]
+      # Remove NA rows
+      idx <- complete.cases(x, y)
+      # calculate corr
+      cor_res <- cor.test(x[idx], y[idx], method="spearman")
+      print(cor_res)
+      # df
+      df_pl_all = sum(complete.cases(mydata_pl_all[[behav_var]],mydata_pl_all[[band]]))-2
+      cat("Degrees of freedom =", df_pl_all, "\n")
+      
+      cat("\n===== Correlations (", band, " × ", behav_var, ") - by time point =====\n", sep="")
+      
+      for (timep in 1:6) {
+        # Subset data for Oxytocin
+        data_my_tp_ot<-mydata_ot_all[mydata_ot_all$TP==timep,]
+    
+        # Remove NAs
+        x_ot <- data_my_tp_ot[[behav_var]]
+        y_ot <- data_my_tp_ot[[band]]
+        idx_ot <- complete.cases(x_ot, y_ot)
+        xx_ot <- x_ot[idx_ot]
+        yy_ot <- y_ot[idx_ot]
+        
+        cat("\nTP =", timep, "; Oxytocin\n")
+        cor_res_ot <- cor.test(xx_ot, yy_ot, method = "spearman")
+        print(cor_res_ot)
+        df_ot <- length(xx_ot) - 2
+        cat("Degrees of freedom =", df_ot, "\n")
+        
+        # Subset data for Placebo
+        data_my_tp_pl<-mydata_pl_all[mydata_pl_all$TP==timep,]
+    
+        # Remove NAs
+        x_pl <- data_my_tp_pl[[behav_var]]
+        y_pl <- data_my_tp_pl[[band]]
+        idx_pl <- complete.cases(x_pl, y_pl)
+        xx_pl <- x_pl[idx_pl]
+        yy_pl <- y_pl[idx_pl]
+        
+        cat("\nTP =", timep, "; Placebo\n")
+        cor_res_pl <- cor.test(xx_pl, yy_pl, method = "spearman")
+        print(cor_res_pl)
+        df_pl <- length(xx_pl) - 2
+        cat("Degrees of freedom =", df_pl, "\n")
+        cat("\n---------------------------------------\n")
+      }
+    }
+  }
+}
+#return control back to console
+sink()
 
 
 # ----------------------------------------------
@@ -373,5 +485,5 @@ anova(e, type=3)
 
 
 # Code by Marie Zelenina
-# last updated 2026-Jan-11
+# last updated 2026-Jan-14
 # marie.zelenina@gmail.com
