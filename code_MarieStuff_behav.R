@@ -239,7 +239,9 @@ sink()
 # ----------------------------------------------
 # ----------------------------------------------
 
-# LOOP function
+# LOOP function - all tp
+
+# ----------------------------------------------
 
 # define options to iterate
 moods <- c(
@@ -315,6 +317,88 @@ for (nm in names(plots)) {
     filename = paste0("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/plots/all_plots/", nm, ".png"),
     plot     = plots[[nm]],
     width    = 4,
+    height   = 4,
+    dpi      = 300
+  )
+}
+
+# ----------------------------------------------
+
+# LOOP function - individual tp
+
+# ----------------------------------------------
+
+# function for plotting for specific tp
+plot_band_vs_mood_tp <- function(data, band, mood_col, mood_label, eyes_label, tp) {
+  data_tp <- data[data$TP == tp, ]
+  ggplot(
+    data_tp,
+    aes(
+      x = .data[[band]],
+      y = .data[[mood_col]],
+      color = Drug,
+      shape = Drug
+    )
+  ) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    scale_color_manual(
+      labels = c("Oxytocin", "Placebo"),
+      values = c("blue", "red")
+    ) +
+    scale_shape_manual(
+      labels = c("Oxytocin", "Placebo"),
+      values = c(15, 17)
+    ) +
+    theme_bw(base_size = 10) +
+    ggtitle(
+      paste(
+        eyes_label, ",",
+        mood_label, "against", band,
+        ", Time point", tp
+      )
+    )
+}
+
+plots_tp <- list()
+
+for (tp in 1:6) {
+  for (eyes in names(eyes_list)) {
+    for (band in bands) {
+      for (mood_label in names(moods)) {
+        
+        mood_col <- moods[[mood_label]]
+        
+        p <- plot_band_vs_mood_tp(
+          data       = eyes_list[[eyes]],
+          band       = band,
+          mood_col   = mood_col,
+          mood_label = mood_label,
+          eyes_label = eyes,
+          tp         = tp
+        )
+        
+        if (is.null(p)) next
+        
+        plots_tp[[paste(eyes, band, mood_label, paste0("TP", tp), sep = " ")]] <- p
+      }
+    }
+  }
+}
+
+names(plots_tp)
+
+for (p in plots_tp) {
+  print(p)
+}
+
+dir.create("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/plots/all_plots/separate_tps/", showWarnings = FALSE)
+
+for (nm in names(plots_tp)) {
+  ggsave(
+    filename = paste0("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/plots/all_plots/separate_tps/", nm, ".png"),
+    plot     = plots_tp[[nm]],
+    width    = 5,
     height   = 4,
     dpi      = 300
   )
