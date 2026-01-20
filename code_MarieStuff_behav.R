@@ -239,6 +239,91 @@ sink()
 # ----------------------------------------------
 # ----------------------------------------------
 
+# LOOP function
+
+# define options to iterate
+moods <- c(
+  Alertness   = "Alertness_reversed",
+  Excitement  = "Excitement_reversed",
+  Sociability = "Sociability_reversed"
+)
+
+bands <- c("Theta", "Alpha", "Beta")
+
+eyes_list <- list(
+  "Eyes open"   = data_eo,
+  "Eyes closed" = data_ec
+)
+
+plots <- list()
+
+# function for plotting
+plot_band_vs_mood <- function(data, band, mood_col, mood_label, eyes_label) {
+  ggplot(
+    data,
+    aes(
+      x = .data[[band]],
+      y = .data[[mood_col]],
+      color = Drug,
+      shape = Drug
+    )
+  ) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    scale_color_manual(
+      labels = c("Oxytocin", "Placebo"),
+      values = c("blue", "red")
+    ) +
+    scale_shape_manual(
+      labels = c("Oxytocin", "Placebo"),
+      values = c(15, 17)
+    ) +
+    theme_bw(base_size = 10) +
+    ggtitle(paste(eyes_label, ",", mood_label, "against", band))
+}
+
+# iterate and plot 
+for (eyes in names(eyes_list)) {
+  for (band in bands) {
+    for (mood_label in names(moods)) {
+      
+      mood_col <- moods[[mood_label]]
+      
+      p <- plot_band_vs_mood(
+        data       = eyes_list[[eyes]],
+        band       = band,
+        mood_col   = mood_col,
+        mood_label = mood_label,
+        eyes_label = eyes
+      )
+      
+      plots[[paste(eyes, band, mood_label, sep = "_")]] <- p
+    }
+  }
+}
+
+names(plots)
+
+for (p in plots) {
+  print(p)
+}
+
+dir.create("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/plots/all_plots/", showWarnings = FALSE)
+
+for (nm in names(plots)) {
+  ggsave(
+    filename = paste0("/Users/zeleninam2/Documents/1_projects/Oxytocin_final_2024/plots/all_plots/", nm, ".png"),
+    plot     = plots[[nm]],
+    width    = 4,
+    height   = 4,
+    dpi      = 300
+  )
+}
+# ----------------------------------------------
+
+# INDIVIDUAL plots
+
+
 # example - I found significance in omnibus test for EO, Alertness, Theta. 
 # In posthoc correlations, there was a significant correlation between Theta and Alertness in tp5 and tp6, only in the PL group.
 
