@@ -23,7 +23,7 @@ editor_options:
     dependencies: matrixStats
 
 NOTE: All this should run as of June 16, 2025.
-Please contact me with questions or if you spot any mistakes: [marie.zelenina\@nih.gov](mailto:marie.zelenina@nih.gov).
+Please contact me with questions or if you spot any mistakes: [marie.zelenina\@gmail.com](mailto:marie.zelenina@gmail.com).
 
 NOTE1: EEG preprocessing was done in MATLAB; the code is published elsewhere.
 See the paper below for reference: da Cruz, J. R., Chicherov, V., Herzog, M. H., & Figueiredo, P. (2018).
