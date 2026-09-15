@@ -1,0 +1,113 @@
+---
+title: "code_behav"
+author: "Marie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# ----- R UNIVERSE PREP -----
+
+```{r setup}
+rm(list = ls()) # remove everything old that might be in my var space
+knitr::opts_chunk$set(echo = TRUE) # this is to connect markdown and r - i don't think i need this but whatever
+pacman::p_load(tidyverse, nlme, CorrMixed, lme4, lmerTest, geepack, ggplot2, geomtextpath, car, emmeans, effectsize, simr, matrixStats) # pacman is a package manager for R (!!! useful). Install packages if missing and load them 
+options(scipen=999) # strongly avoid scientific notations (none of the e bs)
+```
+
+# ----- LOAD DATA -----
+
+```{r data}
+data_eo <- read.table("/Users/zeleninam2/Documents/marie_other/OTPH_TF/dat_EO_relPower_withbehav_missval.csv", header=T, sep=",")
+data_ec <- read.table("/Users/zeleninam2/Documents/marie_other/OTPH_TF/dat_EC_relPower_withbehav_missval.csv", header=T, sep=",")
+
+data_eo$Drug <- factor(data_eo$Drug)
+data_eo$TP <- factor(data_eo$TP)
+data_eo$id <- factor(data_eo$id)
+
+data_ec$Drug <- factor(data_ec$Drug)
+data_ec$TP <- factor(data_ec$TP)
+data_ec$id <- factor(data_ec$id)
+
+# SPLIT DATA between ot and pl
+
+data_eo_ot_all<-data_eo[data_eo$Drug==1,]
+data_eo_pl_all<-data_eo[data_eo$Drug==2,]
+
+data_ec_ot_all<-data_ec[data_ec$Drug==1,]
+data_ec_pl_all<-data_ec[data_ec$Drug==2,]
+```
+
+# ----- Min worlking example: theta, alertness -----
+
+```{r minexample-theta-alertness-MODEL}
+
+# LMM
+model = lmer(Theta ~ Theta_base + TP*Drug*Alertness_reversed + (1|id), data=data_ec)
+#tab_model(model , digits = 4)
+print(summary(model ))
+
+# anova
+print(anova(model, type=3))
+```
+
+```{r minexample-theta-alertness-SLOPES}
+
+cat("\n===== Slopes estimation =====\n")
+trend <- emtrends(model,  as.formula("~1"),var = "Alertness_reversed")
+summary_trend_df<- as.data.frame(test(trend))
+summary_trend_df <- summary_trend_df %>%
+  mutate(
+    t = Alertness_reversed.trend / SE
+  )
+r_trend <- t_to_r(summary_trend_df$t, summary_trend_df$df)
+summary_trend_df$r <- r_trend$r
+print(r_trend)
+print(summary_trend_df)
+print(as.matrix(summary_trend_df))
+
+# ------> alertness, theta, ALL time points
+cat("\n===== Correlations - all time points =====\n")
+print(cor.test(data_eo_ot_all$Alertness_reversed, data_eo_ot_all$Theta,use="pairwise.complete.obs",method = "spearman"))
+sum(complete.cases(data_eo_ot_all$Alertness_reversed,data_eo_ot_all$Theta))-2
+
+print(cor.test(data_eo_pl_all$Alertness_reversed, data_eo_pl_all$Theta,use="pairwise.complete.obs",method = "spearman"))
+sum(complete.cases(data_ec_pl_all$Alertness_reversed,data_eo_pl_all$Theta))-2
+
+# ------> alertness, theta by time point
+cat("\n===== Correlations - by time point =====\n")
+for (timep in list(1,2,3,4,5,6)) {
+  data_my_tp_ot<-data_eo_ot_all[data_eo_ot_all$TP==timep,]
+  data_my_tp_pl<-data_eo_pl_all[data_eo_pl_all$TP==timep,]
+  
+  print("---------------------------------------")
+  cat("\nTP =", timep, "; Oxytocin\n")
+  print(cor.test(data_my_tp_ot$Alertness_reversed, data_my_tp_ot$Theta,use="pairwise.complete.obs",method = "spearman"))
+  df_ot <- sum(complete.cases(data_my_tp_ot$Alertness_reversed, data_my_tp_ot$Theta)) - 2
+  cat("Degrees of freedom =", df_ot, "\n")
+  
+  cat("\nTP =", timep, "; Placebo\n")
+  print(cor.test(data_my_tp_pl$Alertness_reversed, data_my_tp_pl$Theta,use="pairwise.complete.obs",method = "spearman"))
+  df_pl <- sum(complete.cases(data_my_tp_pl$Alertness_reversed, data_my_tp_pl$Theta)) - 2
+  cat("Degrees of freedom =", df_pl, "\n")
+}
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
