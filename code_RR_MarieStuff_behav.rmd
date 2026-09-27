@@ -1,0 +1,347 @@
+---
+title: "notebook_behav"
+author: "Marie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# ----- R UNIVERSE PREP -----
+
+```{r setup}
+rm(list = ls()) # remove everything old that might be in my var space
+knitr::opts_chunk$set(echo = TRUE) # this is to connect markdown and r - i don't think i need this but whatever
+pacman::p_load(tidyverse, nlme, CorrMixed, lme4, lmerTest, geepack, ggplot2, geomtextpath, car, emmeans, effectsize, simr, matrixStats) # pacman is a package manager for R (!!! useful). Install packages if missing and load them 
+options(scipen=999) # strongly avoid scientific notations (none of the e bs)
+```
+
+# ----- LOAD DATA -----
+
+```{r data}
+data_eo <- read.table("/Users/abhishekanand/Documents/OTPH_TF/dat_EO_relPower_withbehav_missval.csv", header=T, sep=",")
+data_ec <- read.table("/Users/abhishekanand/Documents/OTPH_TF/dat_EC_relPower_withbehav_missval.csv", header=T, sep=",")
+
+data_eo$Drug <- factor(data_eo$Drug)
+data_eo$TP <- factor(data_eo$TP)
+data_eo$id <- factor(data_eo$id)
+
+data_ec$Drug <- factor(data_ec$Drug)
+data_ec$TP <- factor(data_ec$TP)
+data_ec$id <- factor(data_ec$id)
+
+# SPLIT DATA between ot and pl
+
+data_eo_ot_all<-data_eo[data_eo$Drug==1,]
+data_eo_pl_all<-data_eo[data_eo$Drug==2,]
+
+data_ec_ot_all<-data_ec[data_ec$Drug==1,]
+data_ec_pl_all<-data_ec[data_ec$Drug==2,]
+```
+
+# ----- Min worlking example: theta, alertness -----
+
+```{r minexample-theta-alertness-MODEL}
+
+# LMM
+# --> step 1
+model = lmer(Theta ~ Theta_base + TP*Drug*Alertness_reversed + (1|id), data=data_ec)
+#tab_model(model , digits = 4)
+print(summary(model ))
+
+# anova
+print(anova(model, type=3))
+
+# --> step 2: only look at ot separately and pl separately
+# model = lmer(Theta ~ Theta_base + TP*Alertness_reversed + (1|id), data=data_ec_otonly)
+# look at trends
+
+# --> step 3: only look at each timepoint separately 
+# model = lmer(Theta ~ Theta_base + Alertness_reversed + (1|id), data=data_ec_otonly_tp1)
+
+
+```
+
+# ============================================================================
+# ===============================ANALYZE======================================
+# ============================================================================
+
+# ----> 1. Run LMMs iteratively, look for main/interaction effects, that defines what to look at in more detail <----
+
+```{r omnibus, echo=FALSE}
+
+omnibus_found <- list()
+
+path_to_savefile = "//Users/abhishekanand/Documents/OTPH_TF/RR/RR_OTPH_results1_omnibus.txt"
+sink(path_to_savefile)
+
+# LOOP THROUGH EYE OPEN/CLOSED
+for (eyes_cond in c("eyes_open", "eyes_closed")){
+  
+  # chose the right data depending on eyes cond
+  if (eyes_cond == "eyes_open") {
+    mydata_main   <- data_eo
+    mydata_ot_all <- data_eo_ot_all
+    mydata_pl_all <- data_eo_pl_all
+  } else {
+    mydata_main   <- data_ec
+    mydata_ot_all <- data_ec_ot_all
+    mydata_pl_all <- data_ec_pl_all
+  } 
+
+  # LOOP THROUGH BANDS
+  bands <- c("Theta", "Alpha", "Beta")
+  for (band in bands) {
+  
+    # LOOP THROUGH BEHAV MEASURES
+    behav_vars <- c("Alertness_reversed", "Excitement_reversed", "Sociability_reversed")
+    for (behav_var in behav_vars) {
+      
+      # do the analysis for this eyes condition, band, measure
+      cat("\n-------------------------------------------------------------------------------------------------------------\n")
+      cat("\n-------------------------------------------EYES = ", eyes_cond, "--------------------------------------------\n")
+      cat("\n----------------------------------------------BAND = ", band, "----------------------------------------------\n")
+      cat("\n------------------------------------------MEASURE = ", behav_var, "------------------------------------------\n")
+      cat("\n-------------------------------------------------------------------------------------------------------------\n")
+      
+      cat("\n===== Anova results, after fitting lmm =====\n\n")
+      
+      formula_str <- paste0(band, " ~ ", band, "_base + TP*Drug*", behav_var, " + (1|id)")
+      # save formula in output txt
+      cat("\n\n")
+      cat(formula_str)
+      cat("\n\n")
+      model <- lmer(as.formula(formula_str), data = mydata_main)  
+      a <- anova(model, type=3)
+      print(a)
+      
+      # if anova shows significant main or interaction --> update list of significant results
+      
+      effects <- c(behav_var, paste0("TP:", behav_var), paste0("Drug:", behav_var), paste0("TP:Drug:", behav_var))      
+      for (effect in effects) {
+        if (a[effect, "Pr(>F)"] < 0.05) {
+          omnibus_found <- c(
+            omnibus_found,
+            sprintf(
+              "%s: %s, %s --> signif: %s -- %s",
+              eyes_cond, band, behav_var, effect, a[effect, "Pr(>F)"]))}}
+  }}}
+cat("\n=========================================================\n\n")
+cat("===== Found significat results, to explore further: =====\n\n")
+cat("=========================================================\n\n")
+print(omnibus_found)
+cat("=========================================================\n\n")
+
+#return control back to console
+sink()
+```
+
+# ----> Whever we found an effect in the main LMM, let's explore that further <----
+# run separate LMMs for oxytocin and placebo, estimate slopes (then split into time points)
+
+# 2. POSTHOCS - LMMs for PL/OT separately
+
+```{r lmm-ot-pl-EO, echo=FALSE}
+
+# function to do a model and check the slope
+check_slopes <- function(dat, band, behav_var) {
+  # lmm
+  formula_str <- paste0(band, " ~ ", band, "_base + TP*", behav_var, " + (1|id)")
+  # print formula
+  cat("\n\n")
+  cat(formula_str)
+  cat("\n\n")
+  model <- lmer(as.formula(formula_str), data = dat)  
+  # anova
+  myanova <- anova(model, type=3)
+  # estimate slopes
+  trend <- emtrends(model,  as.formula("~1"),var = behav_var)
+  summary_trend_df<- as.data.frame(test(trend))
+  summary_trend_df <- summary_trend_df %>%
+        mutate(t = .data[[paste0(behav_var, ".trend")]] / SE)
+  r_trend <- t_to_r(summary_trend_df$t, summary_trend_df$df)
+  summary_trend_df$r <- r_trend$r
+  myslopes = as.matrix(summary_trend_df)
+  return(list(anova_return = myanova, slopes = myslopes))}
+
+# -----------------------------------------------------------------------------
+
+# ----------- EO data ----------- 
+
+path_to_savefile = "//Users/abhishekanand/Documents/OTPH_TF/RR/RR_OTPH_results2_posthoc_ot_pl_slopes_EO.txt"
+sink(path_to_savefile)
+
+cat("\n\n                  EYES OPEN")
+
+mydata_ot <- data_eo_ot_all
+mydata_pl <- data_eo_pl_all
+
+# combinations where we found sign in EYES OPEN
+
+effect_pairs_eo <- list(
+  c("Theta", "Alertness_reversed"),
+  c("Beta", "Alertness_reversed"),
+  c("Theta", "Excitement_reversed"),
+  c("Alpha", "Excitement_reversed"),  
+  c("Beta", "Excitement_reversed"),
+  c("Alpha", "Sociability_reversed"),
+  c("Beta", "Sociability_reversed"))
+
+# iterate through EO effects
+for (e in effect_pairs_eo) {
+
+  bband <- e[1]
+  bbehav <- e[2]
+  
+  cat("\n\n=========================================================\n\n")
+  cat(paste0("      MENTAL STATE: ", bbehav, "; BAND: ", bband))
+  cat("\n\n=========================================================\n\n")
+  
+  # OT and PL separately
+  out_ot <- check_slopes(dat=mydata_ot, band=bband, behav_var=bbehav)
+  out_pl <- check_slopes(dat=mydata_pl, band=bband, behav_var=bbehav)
+  
+  cat("\n\nANOVA Oxytocin:\n\n")
+  print(out_ot$anova)
+  cat("\n\nANOVA Placebo:\n\n")
+  print(out_pl$anova)    
+  
+  cat("\n\nSlopes Oxytocin:\n\n")
+  print(out_ot$slopes)
+  cat("\n\nSlopes Placebo:\n\n")
+  print(out_pl$slopes)  
+  
+}
+
+sink()
+
+# ----------- EC data ----------- 
+
+path_to_savefile = "//Users/abhishekanand/Documents/OTPH_TF/RR/RR_OTPH_results2_posthoc_ot_pl_slopes_EC.txt"
+sink(path_to_savefile)
+
+cat("\n\n                  EYES CLOSED")
+
+mydata_ot <- data_ec_ot_all
+mydata_pl <- data_ec_pl_all
+
+# combinations where we found sign in EYES OPEN
+
+effect_pairs_ec <- list(
+  c("Theta", "Alertness_reversed"),
+  c("Alpha", "Sociability_reversed"),
+  c("Beta", "Sociability_reversed"))
+
+# iterate through EO effects
+for (e in effect_pairs_ec) {
+
+  bband <- e[1]
+  bbehav <- e[2]
+  
+  cat("\n\n=========================================================\n\n")
+  cat(paste0("      MENTAL STATE: ", bbehav, "; BAND: ", bband))
+  cat("\n\n=========================================================\n\n")
+  
+  # OT and PL separately
+  out_ot <- check_slopes(dat=mydata_ot, band=bband, behav_var=bbehav)
+  out_pl <- check_slopes(dat=mydata_pl, band=bband, behav_var=bbehav)
+  
+  cat("\n\nANOVA Oxytocin:\n\n")
+  print(out_ot$anova)
+  cat("\n\nANOVA Placebo:\n\n")
+  print(out_pl$anova)    
+  
+  cat("\n\nSlopes Oxytocin:\n\n")
+  print(out_ot$slopes)
+  cat("\n\nSlopes Placebo:\n\n")
+  print(out_pl$slopes)  
+  
+}
+
+sink()
+```
+
+# 3. POSTHOCS - slopes by timepoint
+# At which timepoints is the Alertness slope significant?
+
+```{r tp-EO, echo=True}
+
+# ============================================================================
+# =============================POSTHOC - TPs======================================
+# ==============================EYES-OPEN=====================================
+# ============================================================================
+
+path_to_savefile <- "//Users/abhishekanand/Documents/OTPH_TF/RR/RR_OTPH_results3_posthoc_bytimepoint_EOonly.txt"
+
+con <- file(path_to_savefile, "w")
+
+cat("\n\n                  EYES OPEN\n", file = con)
+
+for (e in effect_pairs_eo) {
+
+  bband <- e$band
+  bbehav <- e$behav
+  ddat <- e$dat
+
+  formula_str <- paste0(
+    bband, " ~ ", bband, "_base + TP*", bbehav, " + (1|id)"
+  )
+
+  model <- lmer(as.formula(formula_str), data = ddat)
+
+  trends_tp <- emtrends(
+    model,
+    as.formula("~TP"),
+    var = bbehav
+  )
+
+  tp_df <- as.data.frame(test(trends_tp))
+
+  tp_df <- tp_df %>%
+    mutate(
+      t = .data[[paste0(bbehav, ".trend")]] / SE
+    )
+
+  r_trend <- t_to_r(tp_df$t, tp_df$df)
+  tp_df$r <- r_trend$r
+
+  tp_out <- tp_df %>%
+    select(
+      TP,
+      all_of(paste0(bbehav, ".trend")),
+      SE,
+      df,
+      t,
+      p.value,
+      r
+    )
+
+  # Formula
+  cat("\n\n", formula_str, "\n\n", file = con)
+
+  # Column headers
+  cat(
+    "TP    ", bbehav, ".trend    SE       df       t       p.value      r\n",
+    file = con
+  )
+
+  # Values
+  cat(
+    paste(
+      sprintf(
+        "%-5s %-17.3f %-8.3f %-8.2f %-7.2f %-10.3f %.3f",
+        tp_out$TP,
+        tp_out[[paste0(bbehav, ".trend")]],
+        tp_out$SE,
+        tp_out$df,
+        tp_out$t,
+        tp_out$p.value,
+        tp_out$r
+      ),
+      collapse = "\n"
+    ),
+    "\n",
+    file = con
+  )
+}
+
+close(con)
+```
