@@ -22,4 +22,4 @@ in NEW_data folder:
 - Full spectrum data: ...FullSpectrum.csv
 
 NOTE: Last tested Nov 15, 2026.
-[mari
+[marie.zelenina@gmail.com]
