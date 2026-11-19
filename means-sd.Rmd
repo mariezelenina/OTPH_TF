@@ -1,0 +1,66 @@
+---
+title: "means-sd"
+author: "Marie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(tidyverse, nlme, CorrMixed, lme4, lmerTest, geepack, ggplot2, geomtextpath, car, emmeans, effectsize, simr, matrixStats, haven) # pacman is a package manager for R (!!! useful). Install packages if missing and load them 
+```
+
+
+```{r cars}
+# EEG feats
+
+path_to_savefile = "/Users/abhishekanand/Documents/OTPH_TF/RR_new_relpower/rr_results/Means_SD_relpower.txt"
+sink(path_to_savefile)
+
+data_eo <- read.table("/Users/abhishekanand/Documents/OTPH_TF/RR_new_relpower/rr_data/EO_relpower_behavbl.csv", header=T, sep=",")
+data_ec <- read.table("/Users/abhishekanand/Documents/OTPH_TF/RR_new_relpower/rr_data/EC_relpower_behavbl.csv", header=T, sep=",")
+
+data_eo_ot_all<-data_eo[data_eo$Drug==1,]
+data_eo_pl_all<-data_eo[data_eo$Drug==2,]
+
+data_ec_ot_all<-data_ec[data_ec$Drug==1,]
+data_ec_pl_all<-data_ec[data_ec$Drug==2,]
+
+# EO
+print("EO, Oxytocin, Theta-Alpha-Beta; means")
+print(colMeans(data_eo_ot_all[,c("Theta","Alpha","Beta")], na.rm = TRUE))
+print("EO, Oxytocin, Theta-Alpha-Beta; sd")
+print(colSds(as.matrix(data_eo_ot_all[,c("Theta","Alpha","Beta")]), na.rm = TRUE))
+
+print("EO, Placebo, Theta-Alpha-Beta; means")
+print(colMeans(data_eo_pl_all[,c("Theta","Alpha","Beta")], na.rm = TRUE))
+print("EO, Placebo, Theta-Alpha-Beta; sd")
+print(colSds(as.matrix(data_eo_pl_all[,c("Theta","Alpha","Beta")]), na.rm = TRUE))
+
+# EC
+print("EC, Oxytocin, Theta-Alpha-Beta; means")
+print(colMeans(data_ec_ot_all[,c("Theta","Alpha","Beta")], na.rm = TRUE))
+print("EC, Oxytocin, Theta-Alpha-Beta; sd")
+print(colSds(as.matrix(data_ec_ot_all[,c("Theta","Alpha","Beta")]), na.rm = TRUE))
+
+print("EC, Placebo, Theta-Alpha-Beta; means")
+print(colMeans(data_ec_pl_all[,c("Theta","Alpha","Beta")], na.rm = TRUE))
+print("EC, Placebo, Theta-Alpha-Beta; sd")
+print(colSds(as.matrix(data_ec_pl_all[,c("Theta","Alpha","Beta")]), na.rm = TRUE))
+
+# double-check numbers for baselines
+# EO
+
+print("BASELINES: Oxytocin, Theta-Alpha-Beta; means ")
+print(colMeans(data_eo_ot_all[,c("Theta_base","Alpha_base","Beta_base")], na.rm = TRUE))
+print("BASELINES: Oxytocin, Theta-Alpha-Beta; sd ")
+print(colSds(as.matrix(data_eo_ot_all[,c("Theta_base","Alpha_base","Beta_base")]), na.rm = TRUE))
+
+print("BASELINES: Placebo, Theta-Alpha-Beta; means ")
+print(colMeans(data_eo_pl_all[,c("Theta_base","Alpha_base","Beta_base")], na.rm = TRUE))
+print("BASELINES: Placebo, Theta-Alpha-Beta; sd ")
+print(colSds(as.matrix(data_eo_pl_all[,c("Theta_base","Alpha_base","Beta_base")]), na.rm = TRUE))
+
+sink()
+
+```

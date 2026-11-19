@@ -1,0 +1,774 @@
+---
+title: "code_RR_behavBASE_FINAL"
+author: "Marie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# ----- R UNIVERSE PREP -----
+
+```{r setup}
+rm(list = ls()) # remove everything old that might be in my var space
+knitr::opts_chunk$set(echo = TRUE) # this is to connect markdown and r - i don't think i need this but whatever
+pacman::p_load(tidyverse, nlme, CorrMixed, lme4, lmerTest, geepack, ggplot2, geomtextpath, car, emmeans, effectsize, simr, matrixStats, haven,  dplyr, ggeffects, dplyr) # pacman is a package manager for R (!!! useful). Install packages if missing and load them 
+options(scipen=999) # strongly avoid scientific notations (none of the e bs)
+```
+
+# ----- CHOOSE WHICH POWER -----
+```{r}
+whichpower = "rel" # "abs" or "rel"
+```
+
+# ----- LOAD DATA with baseline scales -----
+
+```{r data}
+
+data_eo <- read.table(paste0("/Users/abhishekanand/Documents/OTPH_TF/NEW_data/EO_",whichpower, "power_behavbl.csv"), header=T, sep=",")
+data_ec <- read.table(paste0("/Users/abhishekanand/Documents/OTPH_TF/NEW_data/EC_",whichpower, "power_behavbl.csv"), header=T, sep=",")
+
+data_eo$Drug <- factor(data_eo$Drug)
+data_eo$TP <- factor(data_eo$TP)
+data_eo$id <- factor(data_eo$id)
+
+data_ec$Drug <- factor(data_ec$Drug)
+data_ec$TP <- factor(data_ec$TP)
+data_ec$id <- factor(data_ec$id)
+```
+
+
+# func to organize outputs
+
+```{r outputs}
+
+print_anova_results <- function(anova_table) {
+
+  df <- as.data.frame(anova_table)
+
+  for (i in seq_len(nrow(df))) {
+
+    effect <- rownames(df)[i]
+
+    # Clean variable names
+    effect <- gsub("_reversed", "", effect)
+    effect <- gsub("_base", " (baseline)", effect)
+
+    df1 <- df$NumDF[i]
+    df2 <- df$DenDF[i]
+    F_value <- df[["F value"]][i]
+    p <- df[["Pr(>F)"]][i]
+
+    # Significance symbols
+    stars <- if (p < .001) "***" else if (p < .01) "**" else if (p < .05) "*" else if (p < .10) "†" else ""
+
+    # Format p-value
+    p_text <- if (p < .001) "< .001" else sprintf("= %.3f", p)
+
+    cat(sprintf(
+      "%s: F(%.0f, %.2f) = %.2f, p %s%s\n",
+      effect, df1, df2, F_value, p_text, stars
+    ))
+  }
+}
+
+print_trend_results <- function(trends_df) {
+
+  # Identify slope estimate column
+  trend_col <- grep("\\.trend$", names(trends_df), value = TRUE)
+
+  # Calculate signed r-equivalent effect size
+  trends_df$r_equiv <- with(trends_df, t.ratio / sqrt(t.ratio^2 + df))
+
+  for (i in 1:nrow(trends_df)) {
+
+    drug_name <- ifelse(trends_df$Drug[i] == 1, "Oxytocin", "Placebo")
+
+    myp <- trends_df$p.value[i]
+
+    # Significance symbols
+    stars <- if (myp < .001) "***" else if (myp < .01) "**" else if (myp < .05) "*" else if (myp < .10) "†" else ""
+
+    # Format p-value
+    p_text <- if (myp < .001) "< .001" else sprintf("= %.3f", myp)
+
+    cat(sprintf(
+      "%s: β = %.4f, SE = %.4f, 95%% CI [%.4f, %.4f], t(%.2f) = %.3f, r_equiv = %.4f, p %s%s\n",
+      drug_name,
+      trends_df[[trend_col]][i],
+      trends_df$SE[i],
+      trends_df$lower.CL[i],
+      trends_df$upper.CL[i],
+      trends_df$df[i],
+      trends_df$t.ratio[i],
+      trends_df$r_equiv[i],
+      p_text, stars
+    ))
+  }
+}
+
+print_trend_results_tp <- function(trends_df) {
+
+  # Split by timepoint
+  tp_groups <- split(trends_df, trends_df$TP)
+
+  for (tp in names(tp_groups)) {
+    cat("\nTP =", tp, ":\n")
+
+    mydf <- tp_groups[[tp]]
+    mydf$r_equiv <- with(mydf, t.ratio / sqrt(t.ratio^2 + df))
+
+    trend_col <- grep("\\.trend$", names(mydf), value = TRUE)
+
+    for (i in 1:nrow(mydf)) {
+      drug_name <- ifelse(mydf$Drug[i] == 1, "Oxytocin", "Placebo")
+
+      myp <- mydf$p.value[i]
+
+      # Significance symbols
+      stars <- if (myp < .001) "***" else if (myp < .01) "**" else if (myp < .05) "*" else if (myp < .10) "†" else ""
+
+      # Format p-value
+      p_text <- if (myp < .001) "< .001" else sprintf("= %.3f", myp)
+
+      cat(sprintf(
+        "%s: β = %.4f, SE = %.4f, 95%% CI [%.4f, %.4f], t(%.2f) = %.3f, r_equiv = %.4f, p %s%s\n",
+        drug_name,
+        mydf[[trend_col]][i],
+        mydf$SE[i],
+        mydf$lower.CL[i],
+        mydf$upper.CL[i],
+        mydf$df[i],
+        mydf$t.ratio[i],
+        mydf$r_equiv[i],
+        p_text, stars
+      ))
+    }
+  }
+}
+```
+
+
+```{r troubleshoot, echo=FALSE, eval = FALSE}
+
+# 1. t-test basleine
+
+# 2. LMM
+# --> step 1: lmm
+
+modelex = lmer(Alpha ~ Alpha_base + TP*Drug*Alertness_base_reversed + (1|id), data=data_eo)
+anovaex = anova(modelex, type=3)
+print("anova main model")
+print(anovaex)
+#print_anova_results(anovaex)
+
+# --> step2: slopes from model
+trendsfull <- emtrends(modelex,~ Drug,var = "Alertness_base_reversed")
+trendsfull_df <- as.data.frame(summary(trendsfull, infer = c(TRUE, TRUE)))
+print("slopes main model")
+print(trendsfull_df)
+print_trend_results(trendsfull_df)
+      
+# --> step3: by timepoint
+trendstp <- emtrends(modelex,~ Drug | TP,var = "Alertness_base_reversed")
+trendstp_df <- as.data.frame(summary(trendstp, infer = c(TRUE, TRUE)))
+print("slopes by tp")
+print(trendstp_df)
+print_trend_results_tp(trendstp_df)
+
+
+# --> step4: plot
+#p <- plot_slopes(modelex,data_ec,band = "Theta", whichpower = "rel",whicheyes = "eyes_open",mental_state = "Alertness_base")
+#ggsave(paste0(plotsavepath, "Theta_EC_Alertness.png"),plot = p,width = 6,height = 5,units = "in",dpi = 300)
+```
+```{r breakdown,echo=FALSE, eval = FALSE}
+
+# LMM
+# --> step 1: lmm
+
+modelex = lmer(Alpha ~ Alpha_base + TP*Drug*Alertness_base_reversed + (1|id), data=data_eo)
+anovaex = anova(modelex, type=3)
+cat("\nANOVA MAIN MODEL\n")
+print(anovaex)
+#print_anova_results(anovaex)
+
+# found 3-way Time × Drug × Alertness
+
+# BREAKDOWN
+# ----- THREE-WAY INTERACTION FOLLOW-UP -----
+
+# 1. Estimate all 12 slopes
+# Does the alertness–alphs association differ between drugs at each timepoint?
+
+trendstp <- emtrends(modelex, ~ Drug | TP,var = "Alertness_base_reversed")
+
+# 2. Compare drug slopes at each timepoint
+drug_differences <- pairs(trendstp)
+drug_diff_df <- as.data.frame(summary(drug_differences, infer = c(TRUE, TRUE), adjust = "none"))
+cat("\nDRUG DIFFERENCES IN SLOPES AT EACH TP -- UNCORRECTED\n")
+drug_diff_df
+
+# Correct across six comparisons
+drug_diff_df$p_holm <- p.adjust(drug_diff_df$p.value,method = "holm")
+cat("\nDRUG DIFFERENCES IN SLOPES AT EACH TP - CORRECTED (JUST IN CASE; I DONT THINK WE WANT THIS ONE\n")
+print(drug_diff_df)
+
+# 3. Test whether slopes vary over time within each drug
+# Does the alertness–alpha association change across timepoints within each drug?
+
+trends_by_drug <- emtrends(modelex,~ TP | Drug,var = "Alertness_base_reversed")
+pairs(trends_by_drug, adjust = "none")
+
+
+# Omnibus test of timepoint differences in slopes,separately for each drug
+test(contrast(trends_by_drug, "eff"),joint = TRUE,by = "Drug")
+time_effects <- test(contrast(trends_by_drug, "eff"),joint = TRUE,by = "Drug")
+
+cat("\nDO ALERTNESS SLOPES VARY ACROSS TP WITHIN DRUG?\n")
+print(time_effects)
+
+# 4. Test individual slopes against zero
+# Which individual slopes differ from zero?
+individual_slopes <- as.data.frame(summary(trendstp, infer = c(TRUE, TRUE)))
+cat("\nINDIVIDUAL SLOPES\n")
+print(individual_slopes)
+
+
+# 5. Test overall slopes against zero -- as we did before, we probably dont need this here
+trendsfull <- emtrends(modelex,~ Drug,var = "Alertness_base_reversed")
+trendsfull_df <- as.data.frame(summary(trendsfull, infer = c(TRUE, TRUE)))
+cat("\nOVERALL SLOPES MAIN MODEL\n")
+print(trendsfull_df)
+
+```
+
+
+# ============================================================================
+# ===============================ANALYZE======================================
+# ============================================================================
+
+# ----> Loop through eyes cond, bands, scales <-----
+# --> Run LMMs iteratively, then slopes, then tp <--
+# ----------------> also, plot <--------------------
+
+```{r printfullresults, echo=FALSE}
+
+omnibus_found <- list()
+
+path_to_savefile1 = paste0("//Users/abhishekanand/Documents/OTPH_TF/NEW_results/result_RR_behavBASE_FINAL20261115_", whichpower, "__allmodelresults.txt")
+sink(path_to_savefile1)
+
+# LOOP THROUGH EYE OPEN/CLOSED
+for (eyes_cond in c("eyes_open", "eyes_closed")){
+  
+  # chose the right data depending on eyes cond
+  if (eyes_cond == "eyes_open") {mydata_main <- data_eo} else {mydata_main   <- data_ec} 
+
+  # LOOP THROUGH BANDS
+  bands <- c("Theta", "Alpha", "Beta")
+  for (band in bands) {
+  
+    # LOOP THROUGH BEHAV MEASURES
+    behav_vars <- c("Alertness_base_reversed", "Excitement_base_reversed", "Sociability_base_reversed")
+    for (behav_var in behav_vars) {
+      
+      # do the analysis for this eyes condition, band, measure
+      cat("\n-------------------------------------------------------------------------------------------------------------\n")
+      cat("\n-------------------------------------------EYES = ", eyes_cond, "--------------------------------------------\n")
+      cat("\n----------------------------------------------BAND = ", band, "----------------------------------------------\n")
+      cat("\n------------------------------------------MEASURE = ", behav_var, "------------------------------------------\n")
+      cat("\n-------------------------------------------------------------------------------------------------------------\n")
+      
+      cat("\n===== OMNIBUS Anova results, after fitting lmm =====\n\n")
+      
+      formula_str <- paste0(band, " ~ ", band, "_base + TP*Drug*", behav_var, " + (1|id)")
+      # save formula in output txt
+      cat("\n\n")
+      cat(formula_str)
+      cat("\n\n")
+      
+      modelfull <- lmer(as.formula(formula_str),data = mydata_main,control = lmerControl(
+        optimizer = "bobyqa",optCtrl = list(maxfun = 200000)))
+      print(modelfull)
+      anovafull <- anova(modelfull, type=3)
+      print(anovafull)
+      print_anova_results(anovafull)
+      
+      # if anova shows significant main or interaction --> update list of significant results
+      
+      effectsomn <- c(behav_var, paste0("TP:", behav_var), paste0("Drug:", behav_var), paste0("TP:Drug:", behav_var))      
+      for (effect in effectsomn) {
+        if (anovafull[effect, "Pr(>F)"] < 0.05) {omnibus_found <- c(omnibus_found,sprintf(
+              "%s: %s, %s --> signif: %s -- %s",
+              eyes_cond, band, behav_var, effect, anovafull[effect, "Pr(>F)"]))}}
+
+    
+      cat("\n===== SLOPE ESTIMATIONS from the main model =====\n")
+      cat("\n=== --> SLOPES overall, across timepoints <-- ===\n\n")
+
+      # --> step2: slopes from model
+      trendsfull <- emtrends(modelfull,~ Drug,var = behav_var)
+      trendsfull_df <- as.data.frame(summary(trendsfull, infer = c(TRUE, TRUE)))
+      trendsfull_df$d <- as.data.frame(effectsize::t_to_d(t = trendsfull_df$t.ratio,df_error = trendsfull_df$df))$d
+      print(trendsfull_df)
+      print_trend_results(trendsfull_df)
+      
+      # plot these slopes
+      #p <- plot_slopes(model=modelfull,data=mydata_main,band = band, whichpower = whichpower,whicheyes = eyes_cond,mental_state = behav_var)
+      #ggsave(paste0(plotsavepath, "plot_", whichpower, "_", band, "_", behav_var, "_", eyes_cond, ".png"),plot = p,width = 6,height = 5,units = "in",dpi = 300)
+
+      cat("\n=== --> SLOPES at each timepoint <-- ===\n\n")
+      # --> step3: by timepoint
+      trendstp <- emtrends(modelfull,~ Drug | TP,var = behav_var)
+      trendstp_df <- as.data.frame(summary(trendstp, infer = c(TRUE, TRUE)))
+      trendstp_df$d <- as.data.frame(effectsize::t_to_d(trendstp_df$t.ratio,trendstp_df$df))$d
+      print(trendstp_df)
+      print_trend_results_tp(trendstp_df)
+      }}}
+      
+
+cat("\n=========================================================\n\n")
+cat("===== Omnibus significat results found: =====\n\n")
+cat("=========================================================\n\n")
+print(omnibus_found)
+cat("=========================================================\n\n")
+
+#return control back to console
+sink()
+
+cat("\nDONE! All results saved to:\n", path_to_savefile1, "\n")
+
+
+```
+
+```{r printsuppresults, echo=FALSE}
+
+path_to_savefile2 = paste0("//Users/abhishekanand/Documents/OTPH_TF/NEW_results/result_RR_behavBASE_FINAL20261115_", whichpower, "__resultsforsupp.txt")
+sink(path_to_savefile2)
+
+# LOOP THROUGH EYE OPEN/CLOSED
+for (eyes_cond in c("eyes_open", "eyes_closed")){
+  
+  # chose the right data depending on eyes cond
+  if (eyes_cond == "eyes_open") {mydata_main <- data_eo} else {mydata_main   <- data_ec} 
+  if (eyes_cond == "eyes_open") {printeyes <- "Eyes open"} else {printeyes <- "Eyes closed"} 
+  
+  cat("\n\n", printeyes, ":\n\n")
+
+  # LOOP THROUGH BEHAV MEASURES
+  behav_vars <- c("Alertness_base_reversed", "Excitement_base_reversed", "Sociability_base_reversed")
+  
+  for (behav_var in behav_vars) { 
+  printbehav <- gsub("_base_reversed", " at baseline", behav_var)
+
+    # LOOP THROUGH BANDS
+    bands <- c("Theta", "Alpha", "Beta")
+    for (band in bands) {
+      
+      # do the analysis for this eyes condition, band, measure
+      
+      cat(paste0("\n\n", printeyes, ": ", printbehav, ", ", band, "\n"))
+      
+      formula_str <- paste0(band, " ~ ", band, "_base + TP*Drug*", behav_var, " + (1|id)")
+      # save formula in output txt
+      #cat("\n\n")
+      #cat(formula_str)
+      #cat("\n\n")
+      
+      modelfull <- lmer(as.formula(formula_str),data = mydata_main,control = lmerControl(
+        optimizer = "bobyqa",optCtrl = list(maxfun = 200000)))
+      #print(modelfull)
+      anovafull <- anova(modelfull, type=3)
+      
+      cat("\n\nOmnibus results from ANOVA:\n\n")
+      print_anova_results(anovafull)
+      
+      # if anova shows significant main or interaction --> update list of significant results
+      
+      effectsomn <- c(behav_var, paste0("TP:", behav_var), paste0("Drug:", behav_var), paste0("TP:Drug:", behav_var))      
+      for (effect in effectsomn) {
+        if (anovafull[effect, "Pr(>F)"] < 0.05) {omnibus_found <- c(omnibus_found,sprintf(
+              "%s: %s, %s --> signif: %s -- %s",
+              eyes_cond, band, behav_var, effect, anovafull[effect, "Pr(>F)"]))}}
+
+    
+      #cat("\n===== SLOPE ESTIMATIONS from the main model =====\n")
+      #cat("\n=== --> SLOPES overall, across timepoints <-- ===\n\n")
+
+      # --> step2: slopes from model
+      trendsfull <- emtrends(modelfull,~ Drug,var = behav_var)
+      trendsfull_df <- as.data.frame(summary(trendsfull, infer = c(TRUE, TRUE)))
+      #trendsfull_df$d <- t_to_d(trendsfull_df$t.ratio, trendsfull_df$df)
+      trendsfull_df$d <- as.data.frame(effectsize::t_to_d(t = trendsfull_df$t.ratio,df_error = trendsfull_df$df))$d
+      #print(trendsfull_df)
+      cat("\nOverall slopes estimation, for oxytocin and placebo:\n")
+      print_trend_results(trendsfull_df)
+      
+      # plot these slopes
+      #p <- plot_slopes(model=modelfull,data=mydata_main,band = band, whichpower = whichpower,whicheyes = eyes_cond,mental_state = behav_var)
+      #ggsave(paste0(plotsavepath, "plot_", whichpower, "_", band, "_", behav_var, "_", eyes_cond, ".png"),plot = p,width = 6,height = 5,units = "in",dpi = 300)
+
+      #cat("\n=== --> SLOPES at each timepoint <-- ===\n\n")
+      # --> step3: by timepoint
+      trendstp <- emtrends(modelfull,~ Drug | TP,var = behav_var)
+      trendstp_df <- as.data.frame(summary(trendstp, infer = c(TRUE, TRUE)))
+      #trendstp_df$d <- t_to_d(trendstp_df$t.ratio, trendstp_df$df)
+      trendstp_df$d <- as.data.frame(effectsize::t_to_d(trendstp_df$t.ratio,trendstp_df$df))$d
+      #print(trendstp_df)
+      cat("\nSlopes estimation by timepoint, for oxytocin and placebo:\n")
+      print_trend_results_tp(trendstp_df)
+
+      }}}
+      
+
+#return control back to console
+sink()
+cat("\nDONE! Results for supp saved to:\n", path_to_savefile2, "\n")
+```
+
+```{r csv, echo=FALSE}
+
+library(dplyr)
+library(lmerTest)
+library(emmeans)
+
+# ----- FORMATTING -----
+
+format_p <- function(p) {
+
+  if (is.na(p)) return("N/A")
+
+  stars <- if (p < .001) "***"
+  else if (p < .01) "**"
+  else if (p < .05) "*"
+  else if (p < .10) "t"
+  else ""
+
+  p_text <- if (p < .001) "< .001"
+  else sprintf("= %.3f", p)
+
+  paste0("p ", p_text, stars)
+}
+
+
+# ----- OMNIBUS EFFECTS -----
+
+get_anova_results <- function(anova_table, behav_var) {
+
+  df <- as.data.frame(anova_table)
+  effects <- rownames(df)
+
+  # Only significant/trending effects involving mental state
+  keep <- grepl(behav_var, effects, fixed = TRUE) &
+    !is.na(df[["Pr(>F)"]]) &
+    df[["Pr(>F)"]] < .10
+
+  df <- df[keep, , drop = FALSE]
+  effects <- effects[keep]
+
+  if (nrow(df) == 0) return("n.s.")
+
+  results <- character(nrow(df))
+
+  for (i in seq_len(nrow(df))) {
+
+    effect <- effects[i]
+
+    effect <- gsub("_base_reversed", "", effect, fixed = TRUE)
+    effect <- gsub("_base", "", effect, fixed = TRUE)
+    effect <- gsub(":", " x ", effect, fixed = TRUE)
+
+    df1 <- df$NumDF[i]
+    df2 <- df$DenDF[i]
+    F_value <- df[["F value"]][i]
+    p <- df[["Pr(>F)"]][i]
+
+    # Unsigned partial-r magnitude
+    r <- sqrt((F_value * df1) / (F_value * df1 + df2))
+
+    results[i] <- sprintf(
+      "%s: F(%.0f, %.2f) = %.2f, r = %.2f, %s",
+      effect, df1, df2, F_value, r, format_p(p)
+    )
+  }
+
+  paste(results, collapse = "\n")
+}
+
+
+# ----- OVERALL SLOPES -----
+
+get_slope_results <- function(trends_df) {
+
+  trend_col <- grep("\\.trend$", names(trends_df), value = TRUE)
+
+  results <- character(nrow(trends_df))
+
+  for (i in seq_len(nrow(trends_df))) {
+
+    drug_name <- if (as.character(trends_df$Drug[i]) == "1") {
+      "OT"
+    } else if (as.character(trends_df$Drug[i]) == "2") {
+      "PL"
+    } else {
+      as.character(trends_df$Drug[i])
+    }
+
+    results[i] <- sprintf(
+      "%s: beta = %.4f, t(%.2f) = %.2f, %s",
+      drug_name,
+      trends_df[[trend_col]][i],
+      trends_df$df[i],
+      trends_df$t.ratio[i],
+      format_p(trends_df$p.value[i])
+    )
+  }
+
+  paste(results, collapse = "\n")
+}
+
+
+# ----- TIMEPOINT-SPECIFIC SLOPES -----
+
+
+
+get_tp_results <- function(trends_tp_df, trends_full_df) {
+
+  # Only drugs with significant/trending overall slopes
+  qualifying_drugs <- as.character(
+    trends_full_df$Drug[
+      !is.na(trends_full_df$p.value) &
+      trends_full_df$p.value < .10
+    ]
+  )
+
+  if (length(qualifying_drugs) == 0) return("N/A")
+
+  trend_col <- grep("\\.trend$", names(trends_tp_df), value = TRUE)
+  full_trend_col <- grep("\\.trend$", names(trends_full_df), value = TRUE)
+
+  results <- character()
+
+  for (drug in qualifying_drugs) {
+
+    drug_name <- if (drug == "1") "OT"
+    else if (drug == "2") "PL"
+    else drug
+
+    drug_df <- trends_tp_df[
+      as.character(trends_tp_df$Drug) == drug,
+      ,
+      drop = FALSE
+    ]
+
+    drug_df <- drug_df[
+      order(as.numeric(as.character(drug_df$TP))),
+      ,
+      drop = FALSE
+    ]
+
+    # Overall slope direction
+    overall_row <- trends_full_df[
+      as.character(trends_full_df$Drug) == drug,
+      ,
+      drop = FALSE
+    ]
+
+    direction <- if (
+      overall_row[[full_trend_col]][1] > 0
+    ) "+" else "-"
+
+    # Format all six timepoint slopes
+    tp_text <- character(nrow(drug_df))
+
+    for (i in seq_len(nrow(drug_df))) {
+
+      # Signed r-equivalent effect size
+      t_value <- drug_df$t.ratio[i]
+      df_value <- drug_df$df[i]
+
+      r <- t_value / sqrt(t_value^2 + df_value)
+
+      tp_text[i] <- sprintf(
+        "TP%s: beta = %.4f, t(%.2f) = %.2f, r = %.2f, %s",
+        as.character(drug_df$TP[i]),
+        drug_df[[trend_col]][i],
+        df_value,
+        t_value,
+        r,
+        format_p(drug_df$p.value[i])
+      )
+    }
+
+    results <- c(
+      results,
+      paste0(
+        drug_name, " (", direction, "):\n",
+        paste(tp_text, collapse = ";\n")
+      )
+    )
+  }
+
+  paste(results, collapse = "\n")
+}
+
+
+
+
+# ----- MAIN ANALYSIS -----
+
+results_list <- list()
+result_index <- 1
+
+for (eyes_cond in c("eyes_open", "eyes_closed")) {
+
+  if (eyes_cond == "eyes_open") {
+    mydata_main <- data_eo
+    printeyes <- "Eyes open"
+  } else {
+    mydata_main <- data_ec
+    printeyes <- "Eyes closed"
+  }
+
+  # Ensure categorical predictors
+  mydata_main$TP <- factor(mydata_main$TP)
+  mydata_main$Drug <- factor(mydata_main$Drug)
+
+  behav_vars <- c(
+    "Alertness_base_reversed",
+    "Excitement_base_reversed",
+    "Sociability_base_reversed"
+  )
+
+  for (behav_var in behav_vars) {
+
+    printbehav <- gsub(
+      "_base_reversed", "",
+      behav_var,
+      fixed = TRUE
+    )
+
+    for (band in c("Theta", "Alpha", "Beta")) {
+
+      analysis_name <- paste(
+        printeyes,
+        paste("Baseline", printbehav),
+        band,
+        sep = " x "
+      )
+
+      cat("Running:", analysis_name, "\n")
+
+      # ----- STEP 1: OMNIBUS LMM -----
+
+      formula_str <- paste0(band, " ~ ",band, "_base + TP*Drug*", behav_var," + (1|id)")
+
+      modelfull <- lmer(
+        as.formula(formula_str),
+        data = mydata_main,
+        control = lmerControl(
+          optimizer = "bobyqa",
+          optCtrl = list(maxfun = 200000)
+        )
+      )
+
+      anovafull <- anova(modelfull, type = 3)
+
+      omnibus_text <- get_anova_results(
+        anovafull,
+        behav_var
+      )
+
+      # Default values
+      slopes_text <- "N/A"
+      tp_text <- "N/A"
+
+      # ----- STEP 2: OVERALL SLOPES -----
+
+      if (omnibus_text != "n.s.") {
+
+        trendsfull <- emtrends(
+          modelfull,
+          ~ Drug,
+          var = behav_var
+        )
+
+        trendsfull_df <- as.data.frame(
+          summary(
+            trendsfull,
+            infer = c(TRUE, TRUE)
+          )
+        )
+
+        slopes_text <- get_slope_results(
+          trendsfull_df
+        )
+
+        # ----- STEP 3: TIMEPOINT SLOPES -----
+
+        # Only run if at least one overall slope
+        # is significant or trending
+        if (any(
+          trendsfull_df$p.value < .10,
+          na.rm = TRUE
+        )) {
+
+          trendstp <- emtrends(
+            modelfull,
+            ~ Drug | TP,
+            var = behav_var
+          )
+
+          trendstp_df <- as.data.frame(
+            summary(
+              trendstp,
+              infer = c(TRUE, TRUE)
+            )
+          )
+
+          tp_text <- get_tp_results(
+            trendstp_df,
+            trendsfull_df
+          )
+        }
+      }
+
+      # ----- STORE RESULTS -----
+
+      results_list[[result_index]] <- data.frame(
+        "Analysis" = analysis_name,
+        "Significant baseline-related omnibus effects" =
+          omnibus_text,
+        "Significant overall slopes" =
+          slopes_text,
+        "Timepoint-specific slopes" =
+          tp_text,
+        check.names = FALSE
+      )
+
+      result_index <- result_index + 1
+    }
+  }
+}
+
+
+# ----- SAVE CSV -----
+
+results_final <- dplyr::bind_rows(results_list)
+
+path_to_savefile3 = paste0("//Users/abhishekanand/Documents/OTPH_TF/NEW_results/result_RR_behavBASE_FINAL20261115_", whichpower, "__resultsastable.csv")
+
+
+dir.create(
+  dirname(path_to_savefile3),
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+write.csv(
+  results_final,
+  file = path_to_savefile3,
+  row.names = FALSE
+)
+
+cat("\nDONE! Formatted table results saved to:\n", path_to_savefile3, "\n")
+
+```
