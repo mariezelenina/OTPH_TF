@@ -1,0 +1,369 @@
+---
+title: "code_RR_Bands"
+author: "Marie"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# ----- R UNIVERSE PREP -----
+
+```{r setup}
+rm(list = ls()) # remove everything old that might be in my var space
+knitr::opts_chunk$set(echo = TRUE) # this is to connect markdown and r - i don't think i need this but whatever
+pacman::p_load(tidyverse, nlme, CorrMixed, lme4, lmerTest, geepack, ggplot2, geomtextpath, car, emmeans, effectsize, simr, matrixStats, haven) # pacman is a package manager for R (!!! useful). Install packages if missing and load them 
+options(scipen=999) # strongly avoid scientific notations (none of the e bs)
+```
+
+# ----- LOAD DATA -----
+
+# ----- CHOOSE WHICH POWER -----
+```{r}
+whichpower = "abs" # "abs" or "rel"
+whichpowerfull = "absolute"
+```
+
+```{r data}
+
+data_eo <- read.table(paste0("/Users/abhishekanand/Documents/OTPH_TF/NEW_data/EO_",whichpower, "power_behavbl.csv"), header=T, sep=",")
+data_ec <- read.table(paste0("/Users/abhishekanand/Documents/OTPH_TF/NEW_data/EC_",whichpower, "power_behavbl.csv"), header=T, sep=",")
+
+data_eo$Drug <- factor(data_eo$Drug)
+data_eo$TP <- factor(data_eo$TP)
+data_eo$id <- factor(data_eo$id)
+
+data_ec$Drug <- factor(data_ec$Drug)
+data_ec$TP <- factor(data_ec$TP)
+data_ec$id <- factor(data_ec$id)
+```
+
+```{r plottingfunc}
+plotsavepath <- paste0("//Users/abhishekanand/Documents/OTPH_TF/RR_new_", whichpower, "power/rr_plots/bandplots", whichpower, "/")
+dir.create(plotsavepath, recursive = TRUE, showWarnings = FALSE)
+
+plot_power <- function(emm_df, band, whichpower, whicheyes) {
+
+  # Validate inputs
+  band <- match.arg(band, c("Theta", "Alpha", "Beta"))
+  whichpower <- match.arg(whichpower, c("absolute", "relative"))
+  whicheyes <- match.arg(whicheyes, c("open", "close"))
+
+  # Construct labels
+  power_name <- if (whichpower == "absolute") "abspower" else "relpower"
+
+  eyes_label <- if (whicheyes == "open") "eyes open" else "eyes closed"
+
+  y_label <- paste(
+    band, tools::toTitleCase(whichpower), "power, ", eyes_label
+  )
+
+  plot_filename <- paste0(
+    "plot_", power_name, "_",
+    tolower(band), "_",
+    whicheyes, ".png"
+  )
+
+  # Calculate y-axis limits from confidence intervals
+  y_min <- min(emm_df$lower.CL, na.rm = TRUE)
+  y_max <- max(emm_df$upper.CL, na.rm = TRUE)
+
+  padding <- (y_max - y_min) * 0.05
+
+  y_limits <- c(
+    y_min - padding,
+    y_max + padding
+  )
+
+  # Create plot
+  p <- ggplot(emm_df, aes(
+    x = factor(TP),
+    y = emmean,
+    color = factor(Drug),
+    group = Drug,
+    linetype = factor(Drug),
+    shape = factor(Drug)
+  )) +
+
+    # 95% model-adjusted confidence intervals
+    geom_errorbar(
+      aes(ymin = lower.CL, ymax = upper.CL),
+      width = 0.15,
+      linewidth = 0.7
+    ) +
+
+    geom_line(linewidth = 1.2) +
+
+    geom_point(size = 5) +
+
+    scale_color_manual(
+      values = c("1" = "blue", "2" = "red"),
+      labels = c("Oxytocin", "Placebo")
+    ) +
+
+    scale_linetype_manual(
+      values = c("1" = "solid", "2" = "dotted"),
+      labels = c("Oxytocin", "Placebo")
+    ) +
+
+    scale_shape_manual(
+      values = c("1" = 16, "2" = 15),
+      labels = c("Oxytocin", "Placebo")
+    ) +
+
+    scale_x_discrete(breaks = 1:6, labels = paste0("TP", 1:6)) +
+
+    coord_cartesian(ylim = y_limits) +
+
+    labs(
+      x = "Timepoint",
+      y = y_label,
+      color = "Drug",
+      linetype = "Drug",
+      shape = "Drug"
+    ) +
+
+    #theme_classic(base_size = 20) +    
+    
+    #scale_y_continuous(labels = function(x) sprintf("%.1f", x)) +
+    
+
+    #theme(
+    #  axis.title = element_text(size = 24),
+    #  axis.text = element_text(size = 24),
+    #  legend.title = element_text(size = 16),
+    #  legend.text = element_text(size = 15),
+    #  legend.position = "none")
+    
+        theme_classic(base_size = 18) +
+      
+    scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +
+
+    theme(
+      legend.position = "bottom",
+      legend.title = element_text(size = 17),
+      legend.text = element_text(size = 17),
+      axis.title = element_text(size = 20),
+      axis.text = element_text(size = 17)
+    )
+
+  # Save plot
+  #ggsave(
+  #  file.path(plotsavepath, plot_filename),
+  #  plot = p,
+  #  width = 6, #8
+  #  height = 5, #6
+  #  units = "in",
+  #  dpi = 300
+  #)
+
+  return(p)
+}
+
+t <- lmer(Theta ~ Theta_base + TP * Drug + (1 | id),data = data_eo)
+# Estimated marginal means
+emm_t <- emmeans(t, ~ Drug * TP)
+emm_df <- as.data.frame(emm_t)
+plot_power(emm_df, "Theta", "absolute", "open")
+```
+# ===================================================
+# ---------------- MAIN MODELS - EO -----------------
+# ===================================================
+
+# -----> EO - Theta <-------
+
+```{r eo-theta}
+
+#THETA
+
+t <- lmer(Theta ~ Theta_base + TP * Drug + (1 | id),data = data_eo)
+print(t)
+a <- anova(t, type = 3)
+print(a)
+
+emmeans(t, ~ Drug)
+
+# Estimated marginal means
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Theta", "absolute", "open")
+
+# Pairwise comparisons
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = 0.926,df = 190)
+t_to_d(t = 1.624,df = 190)
+t_to_d(t = 0.478,df = 190)
+t_to_d(t = 1.135,df = 190)
+t_to_d(t = -0.404,df = 189)
+t_to_d(t = -0.061,df = 189)
+
+```
+
+# -----> EO - Alpha <-------
+
+
+```{r eo-alpha}
+
+t <- lmer(Alpha ~ Alpha_base + TP * Drug + (1 | id),data = data_eo)
+a <- anova(t, type = 3)
+print(a)
+
+emmeans(t, ~ Drug)
+
+# Estimated marginal means
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Alpha", "absolute", "open")
+
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = -1.784,df = 191)
+t_to_d(t = -1.390,df = 191)
+t_to_d(t = -0.820,df = 191)
+t_to_d(t = 0.038,df = 191)
+t_to_d(t = -0.562,df = 191)
+t_to_d(t = -1.170,df = 191)
+
+```
+
+
+# -----> EO - Beta <-------
+
+```{r eo-beta}
+
+t <- lmer(Beta ~ Beta_base + TP * Drug + (1 | id),data = data_eo)
+a <- anova(t, type = 3)
+print(a)# Estimated marginal means
+
+emmeans(t, ~ Drug)
+
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Beta", "absolute", "open")
+
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = -0.310,df = 191)
+t_to_d(t = -0.342,df = 191)
+t_to_d(t = -0.821,df = 191)
+t_to_d(t = -0.478,df = 191)
+t_to_d(t = -1.538,df = 190)
+t_to_d(t = -0.504,df = 190)
+
+
+
+```
+
+# ===================================================
+# ---------------- MAIN MODELS - EC -----------------
+# ===================================================
+
+# -----> EC - Theta <-------
+
+```{r ec-theta}
+t <- lmer(Theta ~ Theta_base + TP * Drug + (1 | id),data = data_ec)
+a <- anova(t, type = 3)
+print(a)
+
+emmeans(t, ~ Drug)
+
+# Estimated marginal means
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Theta", "absolute", "close")
+
+# Pairwise comparisons
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = 0.340,df = 190)
+t_to_d(t = 0.346,df = 190)
+t_to_d(t = 0.383,df = 190)
+t_to_d(t = 0.340,df = 190)
+t_to_d(t = 0.795,df = 190)
+t_to_d(t = 0.108,df = 189)
+
+
+```
+# -----> EC - Alpha <-------
+
+```{r ec-alpha}
+t <- lmer(Alpha ~ Alpha_base + TP * Drug + (1 | id),data = data_ec)
+a <- anova(t, type = 3)
+print(a)
+
+emmeans(t, ~ Drug)
+
+
+# Estimated marginal means
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Alpha", "absolute", "close")
+
+# Pairwise comparisons
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = -0.152,df = 190)
+t_to_d(t = -0.012,df = 190)
+t_to_d(t = -0.220,df = 190)
+t_to_d(t = 0.272,df = 190)
+t_to_d(t = 0.766,df = 190)
+t_to_d(t = -0.369,df = 190)
+t_to_d(t = -0.369,df = 189)
+
+```
+
+# -----> EC - Beta <-------
+
+```{r ec-beta}
+t <- lmer(Beta ~ Beta_base + TP * Drug + (1 | id),data = data_ec)
+a <- anova(t, type = 3)
+print(a)
+# Estimated marginal means
+
+emmeans(t, ~ Drug)
+
+emm_t <- emmeans(t, ~ Drug * TP)
+
+emm_df <- as.data.frame(emm_t)
+emm_df
+
+# Plot
+#plot_power(emm_df, "Beta", "absolute", "close")
+
+# Pairwise comparisons
+pairs_t <- pairs(emm_t, by = "TP", adjust = "none")
+print(pairs_t)
+
+t_to_d(t = -0.046,df = 190)
+t_to_d(t = -0.256,df = 190)
+t_to_d(t = 0.043,df = 190)
+t_to_d(t = 0.276,df = 190)
+t_to_d(t = 0.363,df = 190)
+t_to_d(t = -1.151,df = 189)
+
+
+```
